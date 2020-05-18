@@ -54,7 +54,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">unit-tests-mongo-golang/pkg/posts/posts.go (72.1%)</option>
+				<option value="file0">unit-tests-mongo-golang/pkg/posts/posts.go (100.0%)</option>
 				
 				</select>
 			</div>
@@ -71,6 +71,7 @@
 		<pre class="file" id="file0" style="display: none">package posts
 
 import (
+        "context"
         "math"
         "net/http"
 
@@ -106,14 +107,14 @@ func (repo *PostsRepo) GetAll(r *http.Request) ([]*Post, error) <span class="cov
                 return nil, err
         }</span>
 
-        <span class="cov8" title="1">for cursor.Next(r.Context()) </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">for cursor.Next(r.Context()) </span><span class="cov8" title="1">{
                 elem := &amp;Post{}
                 err := cursor.Decode(elem)
-                if err != nil </span><span class="cov0" title="0">{
+                if err != nil </span><span class="cov8" title="1">{
                         return nil, err
                 }</span>
 
-                <span class="cov0" title="0">items = append(items, elem)</span>
+                <span class="cov8" title="1">items = append(items, elem)</span>
         }
 
         // IDEA: Курсор требуется закрывать, согласно документации https://www.mongodb.com/blog/post/mongodb-go-driver-tutorial
@@ -123,7 +124,7 @@ func (repo *PostsRepo) GetAll(r *http.Request) ([]*Post, error) <span class="cov
 }
 
 // CalcPostScoreData пересчитать процент положительных голосов и общий рейтинг поста
-func (repo *PostsRepo) CalcPostScoreData(objID primitive.ObjectID, r *http.Request) (*Post, error) <span class="cov8" title="1">{
+func (repo *PostsRepo) CalcPostScoreData(ctx context.Context, objID primitive.ObjectID) (*Post, error) <span class="cov8" title="1">{
 
         updatedDocument := &amp;Post{}
 
@@ -137,49 +138,29 @@ func (repo *PostsRepo) CalcPostScoreData(objID primitive.ObjectID, r *http.Reque
         }
 
         // Выполним поиск документа
-        err := repo.Collection.FindOne(r.Context(), filter).Decode(updatedDocument)
-        if err != nil </span><span class="cov0" title="0">{
+        err := repo.Collection.FindOne(ctx, filter).Decode(updatedDocument)
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span>
 
-        // fmt.Printf("INSIDE PKG updatedDocument= %#v \n", updatedDocument.ID.Hex())
-
         // Пересчитать процент положительных голосов и общий рейтинг поста
-        <span class="cov8" title="1">var upVotesLength int32 = 0
-        var downVotesLength int32 = 0
-        for i := 0; i &lt; len(updatedDocument.Votes); i++ </span><span class="cov0" title="0">{
-                if updatedDocument.Votes[i].Vote &gt; 0 </span><span class="cov0" title="0">{
-                        upVotesLength++
-                }</span> else<span class="cov0" title="0"> {
-                        downVotesLength++
-                }</span>
-        }
-        <span class="cov8" title="1">var allVotesLength int = 1
-        if len(updatedDocument.Votes) != 0 </span><span class="cov0" title="0">{
-                allVotesLength = len(updatedDocument.Votes)
-        }</span>
-        <span class="cov8" title="1">var upvotePercentage float64 = math.Floor(
-                float64(
-                        (float64(upVotesLength) / float64(allVotesLength)) * 100,
-                ),
-        )
-        var upvotePercentageINT32 int32 = int32(upvotePercentage)
+        <span class="cov8" title="1">scoredData := repo.СalcScoreData(updatedDocument)
+
         upvotePercentageData := primitive.E{
                 Key: "$set",
                 Value: bson.D{
                         primitive.E{
                                 Key:   "upvotePercentage",
-                                Value: upvotePercentageINT32,
+                                Value: scoredData.upvotePercentage,
                         },
                 },
         }
-        score := upVotesLength - downVotesLength
         scoreData := primitive.E{
                 Key: "$set",
                 Value: bson.D{
                         primitive.E{
                                 Key:   "score",
-                                Value: score,
+                                Value: scoredData.score,
                         },
                 },
         }
@@ -192,21 +173,54 @@ func (repo *PostsRepo) CalcPostScoreData(objID primitive.ObjectID, r *http.Reque
         }
 
         // Обновить процент положительных голосов и общий рейтинг поста
-        err = repo.Collection.FindOneAndUpdate(r.Context(), filter, update).Decode(updatedDocument)
-        if err != nil </span><span class="cov0" title="0">{
+        err = repo.Collection.FindOneAndUpdate(ctx, filter, update).Decode(updatedDocument)
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span>
 
         // Т.к. FindOneAndUpdate, не возвращает обновления, внесенные в документ
         // Выполним повторный поиск обновленного документа
-        <span class="cov8" title="1">err = repo.Collection.FindOne(r.Context(), filter).Decode(updatedDocument)
-        if err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">err = repo.Collection.FindOne(ctx, filter).Decode(updatedDocument)
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span>
 
         <span class="cov8" title="1">return updatedDocument, nil</span>
 }
 
+// СalcScoreData вспомогательный метод для рассчета данных рейтинга поста
+//
+// Пересчитывает процент положительных голосов и общий рейтинг поста
+func (repo *PostsRepo) СalcScoreData(updatedDocument *Post) *ScoredData <span class="cov8" title="1">{
+
+        var upVotesLength int32 = 0
+        var downVotesLength int32 = 0
+        for i := 0; i &lt; len(updatedDocument.Votes); i++ </span><span class="cov8" title="1">{
+                if updatedDocument.Votes[i].Vote &gt; 0 </span><span class="cov8" title="1">{
+                        upVotesLength++
+                }</span> else<span class="cov8" title="1"> {
+                        downVotesLength++
+                }</span>
+        }
+        <span class="cov8" title="1">var allVotesLength int = 1
+        if len(updatedDocument.Votes) != 0 </span><span class="cov8" title="1">{
+                allVotesLength = len(updatedDocument.Votes)
+        }</span>
+        <span class="cov8" title="1">var upvotePercentage float64 = math.Floor(
+                float64(
+                        (float64(upVotesLength) / float64(allVotesLength)) * 100,
+                ),
+        )
+        var upvotePercentageINT32 int32 = int32(upvotePercentage)
+        score := upVotesLength - downVotesLength
+
+        scoredData := &amp;ScoredData{
+                upvotePercentage: upvotePercentageINT32,
+                score:            score,
+        }
+
+        return scoredData</span>
+}
 </pre>
 		
 		</div>

@@ -1,6 +1,7 @@
 package posts
 
 import (
+	"context"
 	"math"
 	"net/http"
 
@@ -53,7 +54,7 @@ func (repo *PostsRepo) GetAll(r *http.Request) ([]*Post, error) {
 }
 
 // CalcPostScoreData пересчитать процент положительных голосов и общий рейтинг поста
-func (repo *PostsRepo) CalcPostScoreData(objID primitive.ObjectID, r *http.Request) (*Post, error) {
+func (repo *PostsRepo) CalcPostScoreData(ctx context.Context, objID primitive.ObjectID) (*Post, error) {
 
 	updatedDocument := &Post{}
 
@@ -67,14 +68,61 @@ func (repo *PostsRepo) CalcPostScoreData(objID primitive.ObjectID, r *http.Reque
 	}
 
 	// Выполним поиск документа
-	err := repo.Collection.FindOne(r.Context(), filter).Decode(updatedDocument)
+	err := repo.Collection.FindOne(ctx, filter).Decode(updatedDocument)
 	if err != nil {
 		return nil, err
 	}
 
-	// fmt.Printf("INSIDE PKG updatedDocument= %#v \n", updatedDocument.ID.Hex())
-
 	// Пересчитать процент положительных голосов и общий рейтинг поста
+	scoredData := repo.СalcScoreData(updatedDocument)
+
+	upvotePercentageData := primitive.E{
+		Key: "$set",
+		Value: bson.D{
+			primitive.E{
+				Key:   "upvotePercentage",
+				Value: scoredData.upvotePercentage,
+			},
+		},
+	}
+	scoreData := primitive.E{
+		Key: "$set",
+		Value: bson.D{
+			primitive.E{
+				Key:   "score",
+				Value: scoredData.score,
+			},
+		},
+	}
+
+	update := bson.D{
+		// SCORE
+		scoreData,
+		// UPVOTE_PERCENTAGE
+		upvotePercentageData,
+	}
+
+	// Обновить процент положительных голосов и общий рейтинг поста
+	err = repo.Collection.FindOneAndUpdate(ctx, filter, update).Decode(updatedDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	// Т.к. FindOneAndUpdate, не возвращает обновления, внесенные в документ
+	// Выполним повторный поиск обновленного документа
+	err = repo.Collection.FindOne(ctx, filter).Decode(updatedDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedDocument, nil
+}
+
+// СalcScoreData вспомогательный метод для рассчета данных рейтинга поста
+//
+// Пересчитывает процент положительных голосов и общий рейтинг поста
+func (repo *PostsRepo) СalcScoreData(updatedDocument *Post) *ScoredData {
+
 	var upVotesLength int32 = 0
 	var downVotesLength int32 = 0
 	for i := 0; i < len(updatedDocument.Votes); i++ {
@@ -94,46 +142,12 @@ func (repo *PostsRepo) CalcPostScoreData(objID primitive.ObjectID, r *http.Reque
 		),
 	)
 	var upvotePercentageINT32 int32 = int32(upvotePercentage)
-	upvotePercentageData := primitive.E{
-		Key: "$set",
-		Value: bson.D{
-			primitive.E{
-				Key:   "upvotePercentage",
-				Value: upvotePercentageINT32,
-			},
-		},
-	}
 	score := upVotesLength - downVotesLength
-	scoreData := primitive.E{
-		Key: "$set",
-		Value: bson.D{
-			primitive.E{
-				Key:   "score",
-				Value: score,
-			},
-		},
+
+	scoredData := &ScoredData{
+		upvotePercentage: upvotePercentageINT32,
+		score:            score,
 	}
 
-	update := bson.D{
-		// SCORE
-		scoreData,
-		// UPVOTE_PERCENTAGE
-		upvotePercentageData,
-	}
-
-	// Обновить процент положительных голосов и общий рейтинг поста
-	err = repo.Collection.FindOneAndUpdate(r.Context(), filter, update).Decode(updatedDocument)
-	if err != nil {
-		return nil, err
-	}
-
-	// Т.к. FindOneAndUpdate, не возвращает обновления, внесенные в документ
-	// Выполним повторный поиск обновленного документа
-	err = repo.Collection.FindOne(r.Context(), filter).Decode(updatedDocument)
-	if err != nil {
-		return nil, err
-	}
-
-	return updatedDocument, nil
+	return scoredData
 }
-

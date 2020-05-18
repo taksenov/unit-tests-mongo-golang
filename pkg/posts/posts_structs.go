@@ -62,3 +62,9 @@ type PostFormPayload struct {
 	Text     string
 	URL      string
 }
+
+// ScoredData структура пересчитанных данных рейтинга
+type ScoredData struct {
+	upvotePercentage int32
+	score            int32
+}
